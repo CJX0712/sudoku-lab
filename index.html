@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>数独实验室 · Sudoku Lab</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --line:#e3e6ea; --line2:#cdd3da;
+    --ink:#1c2430; --ink2:#5b6672; --ink3:#8b96a3;
+    --accent:#2563eb; --accent-soft:#e8f0fe;
+    --given:#1c2430; --user:#2563eb;
+    --bad:#dc2626; --bad-soft:#fdeaea;
+    --ok:#15803d; --sel:#fff7d6;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    padding:28px 16px 48px;
+  }
+  .wrap{max-width:560px;margin:0 auto}
+  header{margin-bottom:18px}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.5px}
+  .sub{color:var(--ink2);font-size:13px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:16px; margin-bottom:14px;
+  }
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  select,button{
+    font:inherit; font-size:13px; color:var(--ink);
+    background:#fff; border:1px solid var(--line2); border-radius:8px;
+    padding:6px 12px; cursor:pointer; transition:background .12s,border-color .12s;
+  }
+  select:hover,button:hover{background:#f3f5f8}
+  button:active{background:#e9edf2}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{background:#1d4fd8}
+  label.fld{font-size:13px;color:var(--ink2);margin-right:2px}
+  .board{
+    display:grid; grid-template-columns:repeat(9,1fr);
+    gap:0; border:2px solid var(--ink); border-radius:8px; overflow:hidden;
+    background:var(--ink); margin-bottom:10px; user-select:none;
+  }
+  .cell{
+    aspect-ratio:1/1; background:#fff; border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-size:20px;font-weight:500;cursor:pointer;position:relative;
+    transition:background .1s; color:var(--user);
+  }
+  .cell.given{color:var(--given);font-weight:700}
+  .cell.bad{background:var(--bad-soft);color:var(--bad)}
+  .cell.sel{background:var(--sel)}
+  .cell.cand{color:var(--ink3);font-size:12px;font-weight:400}
+  .bl{border-right:2px solid var(--ink)}
+  .bb{border-bottom:2px solid var(--ink)}
+  .pad{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin-bottom:10px}
+  .pad button{padding:10px 0;font-size:16px;font-weight:600}
+  .pad button.erase{font-size:13px;font-weight:400}
+  .stats{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--ink2)}
+  .stats b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}
+  #msg{font-size:13px;min-height:20px;color:var(--ink2);margin-top:10px}
+  #msg.ok{color:var(--ok)}
+  #msg.err{color:var(--bad)}
+  .checks{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink2)}
+  .checks div{display:flex;gap:6px;align-items:baseline}
+  .checks .st{font-style:normal;width:14px;flex:0 0 14px}
+  .checks .val{color:var(--ink3);font-variant-numeric:tabular-nums}
+  h2{font-size:13px;margin:0 0 8px;color:var(--ink2);font-weight:600;letter-spacing:.3px}
+  footer{color:var(--ink3);font-size:12px;text-align:center;margin-top:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>数独实验室</h1>
+    <div class="sub">零依赖 · 离线运行 · 每局保证唯一解</div>
+  </header>
+
+  <div class="card">
+    <div class="toolbar">
+      <label class="fld" for="diff">难度</label>
+      <select id="diff">
+        <option value="easy">简单</option>
+        <option value="medium" selected>中等</option>
+        <option value="hard">困难</option>
+        <option value="expert">专家</option>
+      </select>
+      <button id="btnNew" class="primary">新的一局</button>
+      <button id="btnHint">提示一格</button>
+      <button id="btnSolve">显示答案</button>
+      <button id="btnReset">重置</button>
+      <button id="btnCheck">校验</button>
+    </div>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="pad" id="pad"></div>
+
+  <div class="card">
+    <div class="stats">
+      <span>用时 <b id="sTime">00:00</b></span>
+      <span>已填 <b id="sFill">0/81</b></span>
+      <span>明面 <b id="sClue">0</b></span>
+      <span>冲突 <b id="sBad">0</b></span>
+      <span>难度 <b id="sDiff">中等</b></span>
+    </div>
+    <div id="msg">点格子后直接用键盘 1–9 填数，Backspace 清除。</div>
+  </div>
+
+  <div class="card">
+    <h2>引擎自检（浏览器内实时验证）</h2>
+    <div class="checks" id="checks"></div>
+  </div>
+
+  <footer>Sudoku Lab · 作者 晨星</footer>
+</div>
+
+<script id="engine">
+/* Sudoku engine — DOM-free, deterministic, exposed as globalThis.SUDOKU */
+(function(){
+  'use strict';
+  var FULL = 0x3FE;                 // bits 1..9
+  var BIT2DIGIT = new Int8Array(1024);
+  for (var _d = 1; _d <= 9; _d++) BIT2DIGIT[1 << _d] = _d;
+
+  function rowOf(i){ return (i / 9) | 0; }
+  function colOf(i){ return i % 9; }
+  function boxOf(i){ return (((i / 9) | 0) / 3 | 0) * 3 + ((i % 9) / 3 | 0); }
+
+  function popcount(x){ var c = 0; while (x){ x &= x - 1; c++; } return c; }
+
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  /* Backtracking solver with MRV + bitmasks.
+     limit: stop after this many solutions. rng: optional, randomises branch order.
+     Returns {count, solution} — solution is the FIRST one found. */
+  function solveGrid(grid, limit, rng){
+    if (limit === undefined || limit === null) limit = 1;
+    var i, v, bit;
+    var g = new Int8Array(81);
+    for (i = 0; i < 81; i++) g[i] = grid[i] | 0;
+    var rows = new Int32Array(9), cols = new Int32Array(9), boxes = new Int32Array(9);
+    for (i = 0; i < 81; i++){
+      v = g[i];
+      if (v !== 0){
+        bit = 1 << v;
+        rows[rowOf(i)] |= bit; cols[colOf(i)] |= bit; boxes[boxOf(i)] |= bit;
+      }
+    }
+    var count = 0, solution = null, stop = false;
+
+    function rec(){
+      if (stop) return;
+      var best = -1, bestCands = 0, bestCount = 10;
+      for (var j = 0; j < 81; j++){
+        if (g[j] !== 0) continue;
+        var r = rowOf(j), c = colOf(j), b = boxOf(j);
+        var cands = ~(rows[r] | cols[c] | boxes[b]) & FULL;
+        var cnt = popcount(cands);
+        if (cnt < bestCount){
+          bestCount = cnt; best = j; bestCands = cands;
+          if (cnt <= 1) break;
+        }
+      }
+      if (best === -1){
+        count++;
+        if (solution === null) solution = Array.prototype.slice.call(g);
+        if (count >= limit) stop = true;
+        return;
+      }
+      var rr = rowOf(best), cc = colOf(best), bb = boxOf(best);
+      var list = [], rem = bestCands;
+      while (rem){ var bz = rem & -rem; rem ^= bz; list.push(bz); }
+      if (rng){
+        for (var k = list.length - 1; k > 0; k--){
+          var jj = (rng() * (k + 1)) | 0, tmp = list[k]; list[k] = list[jj]; list[jj] = tmp;
+        }
+      }
+      for (var m = 0; m < list.length; m++){
+        var b3 = list[m];
+        g[best] = BIT2DIGIT[b3];
+        rows[rr] |= b3; cols[cc] |= b3; boxes[bb] |= b3;
+        rec();
+        rows[rr] ^= b3; cols[cc] ^= b3; boxes[bb] ^= b3;
+        g[best] = 0;
+        if (stop) return;
+      }
+    }
+    rec();
+    return { count: count, solution: solution };
+  }
+
+  function solve(grid, limit){ return solveGrid(grid, limit || 1); }
+  function countSolutions(grid, limit){ return solveGrid(grid, limit || 2).count; }
+
+  /* Indices that participate in a row/col/box duplicate (0 = empty ignored). */
+  function conflictCells(grid){
+    var bad = {}, units = [], u, k;
+    for (u = 0; u < 9; u++){
+      var row = [], col = [], box = [];
+      for (k = 0; k < 9; k++){
+        row.push(u * 9 + k);
+        col.push(k * 9 + u);
+        box.push((((u / 3) | 0) * 3 + ((k / 3) | 0)) * 9 + ((u % 3) * 3 + (k % 3)));
+      }
+      units.push(row, col, box);
+    }
+    for (u = 0; u < units.length; u++){
+      var idxs = units[u], map = {};
+      for (k = 0; k < 9; k++){
+        var ii = idxs[k], v = grid[ii] | 0;
+        if (v === 0) continue;
+        if (!map[v]) map[v] = [];
+        map[v].push(ii);
+      }
+      for (var key in map){
+        if (map[key].length > 1){
+          for (var p = 0; p < map[key].length; p++) bad[map[key][p]] = true;
+        }
+      }
+    }
+    return Object.keys(bad).map(Number).sort(function(a, b){ return a - b; });
+  }
+
+  function validate(grid){ return conflictCells(grid).length === 0; }
+
+  function isSolved(grid){
+    for (var i = 0; i < 81; i++){
+      var v = grid[i] | 0;
+      if (v < 1 || v > 9) return false;
+    }
+    return conflictCells(grid).length === 0;
+  }
+
+  function generateFullSolution(rng){
+    var empty = new Int8Array(81);
+    var res = solveGrid(empty, 1, rng);
+    return res.solution;
+  }
+
+  /* Dig a puzzle out of a full solution, removing cells one at a time and
+     keeping only removals that preserve SOLUTION UNIQUENESS. */
+  function makePuzzle(solution, rng, targetClues){
+    var puzzle = solution.slice(0, 81);
+    var pos = [], i;
+    for (i = 0; i < 81; i++) pos.push(i);
+    for (var k = pos.length - 1; k > 0; k--){
+      var j = (rng() * (k + 1)) | 0, t = pos[k]; pos[k] = pos[j]; pos[j] = t;
+    }
+    var filled = 81;
+    for (var p = 0; p < pos.length; p++){
+      if (filled <= targetClues) break;
+      var idx = pos[p], backup = puzzle[idx];
+      puzzle[idx] = 0;
+      if (solveGrid(puzzle, 2).count !== 1) puzzle[idx] = backup;
+      else filled--;
+    }
+    return puzzle;
+  }
+
+  var DIFF = { easy: 42, medium: 34, hard: 28, expert: 24 };
+
+  function generate(seed, difficulty){
+    var dif = difficulty;
+    var target = DIFF[dif];
+    if (target === undefined){ target = DIFF.medium; dif = 'medium'; }
+    var rng = mulberry32(seed | 0);
+    var sol = generateFullSolution(rng);
+    var pz = makePuzzle(sol, rng, target);
+    var clues = 0;
+    for (var i = 0; i < 81; i++) if (pz[i] !== 0) clues++;
+    return { puzzle: pz, solution: sol, clues: clues, difficulty: dif, seed: seed | 0 };
+  }
+
+  globalThis.SUDOKU = {
+    mulberry32: mulberry32,
+    solve: solve,
+    countSolutions: countSolutions,
+    conflictCells: conflictCells,
+    validate: validate,
+    isSolved: isSolved,
+    generateFullSolution: generateFullSolution,
+    makePuzzle: makePuzzle,
+    generate: generate,
+    DIFF: DIFF
+  };
+})();
+</script>
+
+<script id="ui">
+(function(){
+  if (typeof document === "undefined") return;
+  var SU = globalThis.SUDOKU;
+  var boardEl = document.getElementById('board');
+  var padEl = document.getElementById('pad');
+  var checksEl = document.getElementById('checks');
+  var msgEl = document.getElementById('msg');
+  var diffEl = document.getElementById('diff');
+  var el = {
+    time: document.getElementById('sTime'),
+    fill: document.getElementById('sFill'),
+    clue: document.getElementById('sClue'),
+    bad: document.getElementById('sBad'),
+    diff: document.getElementById('sDiff')
+  };
+
+  var st = { puzzle: [], solution: [], board: [], selected: -1, t0: 0, timer: null, done: false };
+  globalThis.__SULAST = st;
+
+  var cells = [];
+  for (var i = 0; i < 81; i++){
+    var d = document.createElement('div');
+    d.className = 'cell';
+    var r = (i / 9) | 0, c = i % 9;
+    if (c === 2 || c === 5) d.className += ' bl';
+    if (r === 2 || r === 5) d.className += ' bb';
+    (function(idx){
+      d.addEventListener('click', function(){ select(idx); });
+    })(i);
+    boardEl.appendChild(d);
+    cells.push(d);
+  }
+
+  var padBtns = [];
+  for (var n = 1; n <= 9; n++){
+    (function(dig){
+      var b = document.createElement('button');
+      b.textContent = String(dig);
+      b.addEventListener('click', function(){ input(dig); });
+      padEl.appendChild(b);
+      padBtns.push(b);
+    })(n);
+  }
+  var eraseBtn = document.createElement('button');
+  eraseBtn.className = 'erase';
+  eraseBtn.textContent = '擦除';
+  eraseBtn.addEventListener('click', function(){ input(0); });
+  padEl.appendChild(eraseBtn);
+
+  function say(text, kind){
+    msgEl.textContent = text;
+    msgEl.className = kind === 'ok' ? 'ok' : (kind === 'err' ? 'err' : '');
+  }
+
+  function fmtTime(ms){
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function select(idx){
+    st.selected = idx;
+    render();
+  }
+
+  function input(dig){
+    if (st.selected < 0){ say('先点一个格子', 'err'); return; }
+    if (st.puzzle[st.selected] !== 0){ say('明面数字不能改', 'err'); return; }
+    st.board[st.selected] = dig;
+    render();
+    if (dig !== 0) checkDone();
+  }
+
+  function checkDone(){
+    if (SU.isSolved(st.board)){
+      st.done = true;
+      stopTimer();
+      say('完成！用时 ' + fmtTime(Date.now() - st.t0), 'ok');
+    }
+  }
+
+  function startTimer(){
+    stopTimer();
+    st.t0 = Date.now();
+    if (typeof setInterval === 'function'){
+      st.timer = setInterval(function(){ el.time.textContent = fmtTime(Date.now() - st.t0); }, 500);
+    }
+  }
+  function stopTimer(){
+    if (st.timer && typeof clearInterval === 'function') clearInterval(st.timer);
+    st.timer = null;
+  }
+
+  function render(){
+    var bad = SU.conflictCells(st.board);
+    var badSet = {};
+    for (var b = 0; b < bad.length; b++) badSet[bad[b]] = true;
+    var filled = 0;
+    for (var i = 0; i < 81; i++){
+      var v = st.board[i] | 0;
+      if (v !== 0) filled++;
+      var cls = 'cell';
+      if (st.puzzle[i] !== 0) cls += ' given';
+      if (badSet[i]) cls += ' bad';
+      if (st.selected === i) cls += ' sel';
+      var r = (i / 9) | 0, c = i % 9;
+      if (c === 2 || c === 5) cls += ' bl';
+      if (r === 2 || r === 5) cls += ' bb';
+      cells[i].className = cls;
+      cells[i].textContent = v === 0 ? '' : String(v);
+    }
+    el.fill.textContent = filled + '/81';
+    el.bad.textContent = String(bad.length);
+  }
+
+  function runChecks(){
+    var cs = [];
+    cs.push({
+      name: '答案合法（每行/列/宫为 1–9 排列）',
+      pass: SU.isSolved(st.solution),
+      val: SU.isSolved(st.solution) ? '通过' : '违规'
+    });
+    var n = SU.countSolutions(st.puzzle, 2);
+    cs.push({
+      name: '谜题唯一解（穷举计数 = 1）',
+      pass: n === 1,
+      val: String(n)
+    });
+    var ok = SU.validate(st.puzzle);
+    cs.push({ name: '谜题本身无冲突', pass: ok, val: ok ? '通过' : '违规' });
+    var cl = 0;
+    for (var i = 0; i < 81; i++) if (st.puzzle[i] !== 0) cl++;
+    el.clue.textContent = String(cl);
+    globalThis.__SUCHECKS = cs;
+    checksEl.innerHTML = '';
+    for (var k = 0; k < cs.length; k++){
+      var row = document.createElement('div');
+      var s1 = document.createElement('span');
+      s1.className = 'st';
+      s1.textContent = cs[k].pass ? '\u2705' : '\u26A0\uFE0F';
+      var s2 = document.createElement('span');
+      s2.textContent = cs[k].name;
+      var s3 = document.createElement('span');
+      s3.className = 'val';
+      s3.textContent = cs[k].val;
+      row.appendChild(s1); row.appendChild(s2); row.appendChild(s3);
+      checksEl.appendChild(row);
+    }
+  }
+
+  function newGame(){
+    var seed = (Date.now() ^ (Math.random() * 0x7fffffff)) | 0;
+    var res = SU.generate(seed, diffEl.value);
+    st.puzzle = res.puzzle;
+    st.solution = res.solution;
+    st.board = res.puzzle.slice(0, 81);
+    st.selected = -1;
+    st.done = false;
+    el.diff.textContent = { easy: '简单', medium: '中等', hard: '困难', expert: '专家' }[res.difficulty] || res.difficulty;
+    startTimer();
+    el.time.textContent = '00:00';
+    render();
+    runChecks();
+    say('新局已生成（' + res.clues + ' 个明面），开始吧。');
+  }
+
+  function hint(){
+    var empties = [];
+    for (var i = 0; i < 81; i++) if (st.board[i] === 0) empties.push(i);
+    if (!empties.length){ say('已经填满了'); return; }
+    var pick = empties[(Math.random() * empties.length) | 0];
+    st.board[pick] = st.solution[pick];
+    st.selected = pick;
+    render();
+    checkDone();
+    say('提示：第 ' + (((pick / 9) | 0) + 1) + ' 行第 ' + ((pick % 9) + 1) + ' 列');
+  }
+
+  function solveAll(){
+    st.board = st.solution.slice(0, 81);
+    render();
+    st.done = true;
+    stopTimer();
+    say('已显示答案。', 'ok');
+  }
+
+  function resetBoard(){
+    st.board = st.puzzle.slice(0, 81);
+    st.selected = -1;
+    st.done = false;
+    startTimer();
+    el.time.textContent = '00:00';
+    render();
+    say('已重置到本局初始状态。');
+  }
+
+  function checkNow(){
+    var bad = SU.conflictCells(st.board).length;
+    if (bad > 0){ say('有 ' + bad + ' 处冲突，红色格子就是问题所在。', 'err'); return; }
+    if (SU.isSolved(st.board)){ st.done = true; stopTimer(); say('完全正确，恭喜！', 'ok'); return; }
+    var filled = 0;
+    for (var i = 0; i < 81; i++) if (st.board[i] !== 0) filled++;
+    say('目前没有冲突，已填 ' + filled + '/81，继续。');
+  }
+
+  document.getElementById('btnNew').addEventListener('click', newGame);
+  document.getElementById('btnHint').addEventListener('click', hint);
+  document.getElementById('btnSolve').addEventListener('click', solveAll);
+  document.getElementById('btnReset').addEventListener('click', resetBoard);
+  document.getElementById('btnCheck').addEventListener('click', checkNow);
+
+  document.addEventListener('keydown', function(e){
+    var k = e.key;
+    if (k >= '1' && k <= '9'){ input(parseInt(k, 10)); return; }
+    if (k === '0' || k === 'Backspace' || k === 'Delete'){ input(0); return; }
+    if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'ArrowLeft' || k === 'ArrowRight'){
+      var cur = st.selected < 0 ? 0 : st.selected;
+      var r = (cur / 9) | 0, c = cur % 9;
+      if (k === 'ArrowUp') r = (r + 8) % 9;
+      if (k === 'ArrowDown') r = (r + 1) % 9;
+      if (k === 'ArrowLeft') c = (c + 8) % 9;
+      if (k === 'ArrowRight') c = (c + 1) % 9;
+      select(r * 9 + c);
+    }
+  });
+
+  newGame();
+})();
+</script>
+</body>
+</html>
