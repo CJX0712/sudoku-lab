@@ -39,6 +39,7 @@
   button:active{background:#e9edf2}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
   button.primary:hover{background:#1d4fd8}
+  button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
   label.fld{font-size:13px;color:var(--ink2);margin-right:2px}
   .board{
     display:grid; grid-template-columns:repeat(9,1fr);
@@ -53,8 +54,12 @@
   }
   .cell.given{color:var(--given);font-weight:700}
   .cell.bad{background:var(--bad-soft);color:var(--bad)}
+  .cell.same{background:var(--accent-soft)}
   .cell.sel{background:var(--sel)}
-  .cell.cand{color:var(--ink3);font-size:12px;font-weight:400}
+  .cell.cand{
+    color:var(--ink3); font-size:10.5px; font-weight:400; line-height:1.25;
+    white-space:pre-line; letter-spacing:.4px;
+  }
   .bl{border-right:2px solid var(--ink)}
   .bb{border-bottom:2px solid var(--ink)}
   .pad{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;margin-bottom:10px}
@@ -94,6 +99,8 @@
       <button id="btnSolve">显示答案</button>
       <button id="btnReset">重置</button>
       <button id="btnCheck">校验</button>
+      <button id="btnNote">笔记</button>
+      <button id="btnUndo">撤销</button>
     </div>
   </div>
 
@@ -109,7 +116,7 @@
       <span>冲突 <b id="sBad">0</b></span>
       <span>难度 <b id="sDiff">中等</b></span>
     </div>
-    <div id="msg">点格子后直接用键盘 1–9 填数，Backspace 清除。</div>
+    <div id="msg">点格子后用键盘 1–9 填数，Backspace 清除；N 切笔记模式，Ctrl+Z 撤销。</div>
   </div>
 
   <div class="card">
@@ -141,6 +148,17 @@
       t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
       return ((t ^ t >>> 14) >>> 0) / 4294967296;
     };
+  }
+
+  /* All cells sharing a row, column or box with i (excludes i itself).
+     A well-formed Sudoku peer set always has exactly 20 members. */
+  function peers(i){
+    var r = rowOf(i), c = colOf(i), b = boxOf(i), out = [];
+    for (var j = 0; j < 81; j++){
+      if (j === i) continue;
+      if (rowOf(j) === r || colOf(j) === c || boxOf(j) === b) out.push(j);
+    }
+    return out;
   }
 
   /* Backtracking solver with MRV + bitmasks.
@@ -291,6 +309,7 @@
     conflictCells: conflictCells,
     validate: validate,
     isSolved: isSolved,
+    peers: peers,
     generateFullSolution: generateFullSolution,
     makePuzzle: makePuzzle,
     generate: generate,
@@ -308,6 +327,7 @@
   var checksEl = document.getElementById('checks');
   var msgEl = document.getElementById('msg');
   var diffEl = document.getElementById('diff');
+  var noteBtn = document.getElementById('btnNote');
   var el = {
     time: document.getElementById('sTime'),
     fill: document.getElementById('sFill'),
@@ -316,7 +336,11 @@
     diff: document.getElementById('sDiff')
   };
 
-  var st = { puzzle: [], solution: [], board: [], selected: -1, t0: 0, timer: null, done: false };
+  var st = {
+    puzzle: [], solution: [], board: [], notes: [],
+    selected: -1, t0: 0, timer: null, done: false,
+    noteMode: false, history: []
+  };
   globalThis.__SULAST = st;
 
   var cells = [];
@@ -361,6 +385,23 @@
     return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
   }
 
+  function freshNotes(){
+    var a = [];
+    for (var j = 0; j < 81; j++) a.push(new Set());
+    return a;
+  }
+
+  function snapshot(){
+    return {
+      b: st.board.slice(0, 81),
+      n: st.notes.map(function(s){ return Array.from(s); })
+    };
+  }
+  function pushHistory(){
+    st.history.push(snapshot());
+    if (st.history.length > 300) st.history.shift();
+  }
+
   function select(idx){
     st.selected = idx;
     render();
@@ -369,9 +410,49 @@
   function input(dig){
     if (st.selected < 0){ say('先点一个格子', 'err'); return; }
     if (st.puzzle[st.selected] !== 0){ say('明面数字不能改', 'err'); return; }
+    if (st.noteMode && dig !== 0){
+      if (st.board[st.selected] !== 0){ say('有数字的格子不用记笔记', 'err'); return; }
+      pushHistory();
+      var s = st.notes[st.selected];
+      if (s.has(dig)) s.delete(dig); else s.add(dig);
+      render();
+      return;
+    }
+    if (st.noteMode && dig === 0){
+      if (st.notes[st.selected].size === 0) return;
+      pushHistory();
+      st.notes[st.selected].clear();
+      render();
+      return;
+    }
+    var prev = st.board[st.selected] | 0;
+    if (prev === dig) return;
+    pushHistory();
     st.board[st.selected] = dig;
+    st.notes[st.selected].clear();
+    if (dig !== 0){
+      var pp = SU.peers(st.selected);
+      for (var q = 0; q < pp.length; q++) st.notes[pp[q]].delete(dig);
+      checkDone();
+    }
     render();
-    if (dig !== 0) checkDone();
+  }
+
+  function undo(){
+    var s = st.history.pop();
+    if (!s){ say('没有可撤销的操作'); return; }
+    st.board = s.b;
+    st.notes = s.n.map(function(a){ return new Set(a); });
+    st.done = false;
+    render();
+    say('已撤销。');
+  }
+
+  function toggleNote(){
+    st.noteMode = !st.noteMode;
+    noteBtn.className = st.noteMode ? 'on' : '';
+    say(st.noteMode ? '笔记模式：点数字加入/移除候选小字，擦除清空本格笔记。'
+                    : '已退出笔记模式。');
   }
 
   function checkDone(){
@@ -399,18 +480,38 @@
     var badSet = {};
     for (var b = 0; b < bad.length; b++) badSet[bad[b]] = true;
     var filled = 0;
+    var selDigit = st.selected >= 0 ? (st.board[st.selected] | 0) : 0;
     for (var i = 0; i < 81; i++){
       var v = st.board[i] | 0;
       if (v !== 0) filled++;
       var cls = 'cell';
       if (st.puzzle[i] !== 0) cls += ' given';
       if (badSet[i]) cls += ' bad';
+      if (selDigit !== 0 && v === selDigit && i !== st.selected) cls += ' same';
       if (st.selected === i) cls += ' sel';
       var r = (i / 9) | 0, c = i % 9;
       if (c === 2 || c === 5) cls += ' bl';
       if (r === 2 || r === 5) cls += ' bb';
       cells[i].className = cls;
-      cells[i].textContent = v === 0 ? '' : String(v);
+      if (v !== 0){
+        cells[i].textContent = String(v);
+      } else {
+        var ns = st.notes[i];
+        if (ns && ns.size){
+          var lines = [];
+          for (var row = 0; row < 3; row++){
+            var ln = [];
+            for (var col = 1; col <= 3; col++){
+              var dg = row * 3 + col;
+              ln.push(ns.has(dg) ? String(dg) : '\u00B7');
+            }
+            lines.push(ln.join(' '));
+          }
+          cells[i].textContent = lines.join('\n');
+        } else {
+          cells[i].textContent = '';
+        }
+      }
     }
     el.fill.textContent = filled + '/81';
     el.bad.textContent = String(bad.length);
@@ -457,6 +558,8 @@
     st.puzzle = res.puzzle;
     st.solution = res.solution;
     st.board = res.puzzle.slice(0, 81);
+    st.notes = freshNotes();
+    st.history = [];
     st.selected = -1;
     st.done = false;
     el.diff.textContent = { easy: '简单', medium: '中等', hard: '困难', expert: '专家' }[res.difficulty] || res.difficulty;
@@ -472,7 +575,11 @@
     for (var i = 0; i < 81; i++) if (st.board[i] === 0) empties.push(i);
     if (!empties.length){ say('已经填满了'); return; }
     var pick = empties[(Math.random() * empties.length) | 0];
+    pushHistory();
     st.board[pick] = st.solution[pick];
+    st.notes[pick].clear();
+    var pp = SU.peers(pick);
+    for (var q = 0; q < pp.length; q++) st.notes[pp[q]].delete(st.solution[pick]);
     st.selected = pick;
     render();
     checkDone();
@@ -481,6 +588,8 @@
 
   function solveAll(){
     st.board = st.solution.slice(0, 81);
+    st.notes = freshNotes();
+    st.history = [];
     render();
     st.done = true;
     stopTimer();
@@ -488,13 +597,14 @@
   }
 
   function resetBoard(){
+    pushHistory();
     st.board = st.puzzle.slice(0, 81);
     st.selected = -1;
     st.done = false;
     startTimer();
     el.time.textContent = '00:00';
     render();
-    say('已重置到本局初始状态。');
+    say('已重置到本局初始状态（可撤销）。');
   }
 
   function checkNow(){
@@ -511,9 +621,17 @@
   document.getElementById('btnSolve').addEventListener('click', solveAll);
   document.getElementById('btnReset').addEventListener('click', resetBoard);
   document.getElementById('btnCheck').addEventListener('click', checkNow);
+  noteBtn.addEventListener('click', toggleNote);
+  document.getElementById('btnUndo').addEventListener('click', undo);
 
   document.addEventListener('keydown', function(e){
     var k = e.key;
+    if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'Z')){
+      if (e.preventDefault) e.preventDefault();
+      undo();
+      return;
+    }
+    if (k === 'n' || k === 'N'){ toggleNote(); return; }
     if (k >= '1' && k <= '9'){ input(parseInt(k, 10)); return; }
     if (k === '0' || k === 'Backspace' || k === 'Delete'){ input(0); return; }
     if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'ArrowLeft' || k === 'ArrowRight'){

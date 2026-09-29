@@ -114,6 +114,24 @@ for (const d of DIFFS) {
   }
 }
 
+/* ---------- 6. peers relation ---------- */
+const P0 = SUDOKU.peers(0);
+ok(P0.length === 20, 'peers(0) has 20 cells', P0.length);
+ok(P0.indexOf(0) === -1, 'peers exclude self');
+const expect0 = new Set();
+for (let k = 0; k < 9; k++){ expect0.add(k); expect0.add(k * 9); }   // row0 + col0
+for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) expect0.add(r * 9 + c); // box0
+expect0.delete(0);
+ok(P0.length === expect0.size && P0.every(j => expect0.has(j)),
+   'peers(0) == row0 ∪ col0 ∪ box0');
+let sym = true;
+for (let i = 0; i < 81; i++){
+  const pi = SUDOKU.peers(i);
+  if (pi.length !== 20) sym = false;
+  for (const j of pi){ if (SUDOKU.peers(j).indexOf(i) === -1) sym = false; }
+}
+ok(sym, 'peers symmetric, |peers|==20 for all 81 cells');
+
 /* easy must leave strictly more clues than expert on average */
 function avgclues(d) {
   let t = 0, n = 3;
